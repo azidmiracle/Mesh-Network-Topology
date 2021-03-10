@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <title>Campus Group Chat</title>
+  </head>
+  <body>
+    <div id="loginPage" class="PageShow center">
+      <form id="joinpageForm">
+        <h3>Welcome to Campus Group Chat</h3>
+        <div>
+          <br />
+          <input
+            type="text"
+            id="name_join"
+            placeholder="your name"
+            required
+            minlength="1"
+            maxlength="10"
+          />
+        </div>
+        <br />
+        <div>
+          <input type="submit" value="Join Chat" id="btn-join" class="btn" />
+        </div>
+      </form>
+    </div>
+    <div id="homePage" class="PageHide">
+      <header class="header center">
+        <p id="title"><a id="name"></a> (you) joined to Campus Chat App</p>
+        <!--<button id="btn-add">Add Chat</button>
+        <button id="btn-load">Load History</button>-->
+
+        <button id="btn-delete">Delete History</button>
+      </header>
+      <main class="main">
+        <ul id="messagge-history"></ul>
+      </main>
+
+      <footer class="footer">
+        <form id="form_location">
+          <input
+            type="submit"
+            value="Share my Location"
+            id="btn-sharelocation" hidden
+          />
+        </form>
+        <form id="form_msg">
+          <br />
+          <div class="div-mymessage-wrapper margin-padding">
+            <div class="div-mymessage">
+              <textarea name="" id="my-message" rows="10" required></textarea>
+            </div>
+            <div class="div-btn-send">
+              <input type="submit" value="Send" id="btn-send" />
+            </div>
+          </div>
+        </form>
+      </footer>
+    </div>
+  </body>
+  <script>
+    let dbName = "chatDB";
+    let tableName = "history";
+    var name = "";
+    /*logIn page*/
+    let joinpageForm = document.getElementById("joinpageForm");
+    let loginPageDiv = document.getElementById("loginPage");
+    let homePageDiv = document.getElementById("homePage");
+    let btnJoin = document.getElementById("btn-join");
+
+    function JoinChat(event) {
+      event.preventDefault();
+      name = document.getElementById("name_join").value;
+      document.getElementById("name").textContent = name;
+      //hide the Join page
+      loginPageDiv.classList.remove("PageShow");
+      loginPageDiv.classList.add("PageHide");
+      homePageDiv.classList.remove("PageHide");
+      homePageDiv.classList.add("PageShow");
+      //console.log(name);
+      //populate history from indexDB database
+      createTable(dbName, tableName);
+      populateHistory();
+    }
+
+    joinpageForm.addEventListener("submit", JoinChat);
+
+    var ws = new WebSocket("ws://" + location.hostname + ":1337/", ["arduino"]);
+    //var ws = new WebSocket("ws://10.250.98.101:1337/");
+    //var ws = new WebSocket("ws://192.168.4.1:1337/");
+    //var ws = new WebSocket("ws://192.168.1.1:1337/");
+    ws.onopen = function () {
+      window.alert("Connected to server");
+    };
+   
+   // function onReceivedMessage(){
+
+    //everytime received a message
+    /*for deployment*/
+    ws.onmessage = function (evt) {
+      //document.getElementById("rxConsole").value += evt.data;
+      //populate in ul
+      let obj = JSON.parse(evt.data);
+      let nameParse = obj["name"];
+      let myMessageParse = obj["myMessage"];
+      let dateParse = obj["dateSend"];
+      //check the sender..
+      let whosSender = IsMeSender(name, nameParse);
+      insertMessage(nameParse, myMessageParse, dateParse, whosSender);
+
+      //insert to database
+      createTable(dbName, tableName);
+      createTxn(dbName, tableName, nameParse, myMessageParse, dateParse);
+    };
+    //}
+
+    /*end for deployment*/
+
+    let form_msg = document.getElementById("form_msg");
+    let messaggeHistory = document.getElementById("messagge-history");
+
+    function handleForm(event) {
+      event.preventDefault();
+      let myMessage = document.getElementById("my-message").value;
+
+      //console.log(txtBox.value);
+      let myData = {
+        name: name,
+        myMessage: myMessage,
+        dateSend: new Date(),
+      };
+      //console.log(myData);
+      ws.send(JSON.stringify(myData));
+
+      /*//for debug
+          let objStrngify = JSON.stringify(myData);
+          let obj = JSON.parse(objStrngify);
+          let nameParse = obj["name"];
+          let myMessageParse = obj["myMessage"];
+          let dateParse = obj["dateSend"];
+
+          //check the sender..
+          let whosSender = IsMeSender(name, "aug");
+
+          insertMessage(nameParse, myMessageParse, dateParse, whosSender);
+
+          //---end ofor debug*/
+    }
+
+    //insert data to the ul....
+
+    function insertMessage(sender, message, dateSend, whosSender) {
+      let li = document.createElement("li");
+      let a = document.createElement("a"); //for the sender and date
+      let p = document.createElement("p"); //for the message received
+      let br = document.createElement("br"); //add break
+
+      //reformat the date
+      let date = new Date(dateSend);
+      p.className = "msg"; //add class msg to the
+
+      //check who is the sender
+      if (whosSender) {
+        p.className = "msg colorMe"; //if the sender is Me, the color is different.
+        sender = "Me"; //change the value of the sender to Me
+      }
+
+      a.textContent = "From " + sender + " (" + reFormatDate(date) + ")";
+      p.textContent = message;
+
+      li.appendChild(a);
+      li.appendChild(p);
+      li.appendChild(br);
+
+      messaggeHistory.appendChild(li);
+    }
+
+    //function to reformate the date example Jul 10, 2020 14:36
+    function reFormatDate(dateSend) {
+      let year = dateSend.getFullYear();
+      let month = getMonthName(dateSend.getMonth()); //call the getMonthName method to convert the integer to month name
+      let day = dateSend.getDate();
+      let hour = dateSend.getHours();
+      let minutes = dateSend.getMinutes();
+
+      return `${month} ${day}, ${year} ${hour}:${minutes}`;
+    }
+
+    function getMonthName(num) {
+      let monthArr = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+
+      return monthArr[num];
+    }
+
+    //this function is used to color the message.
+    //If the sender is Me or not
+    function IsMeSender(sender1, sender2) {
+      if (sender1 == sender2) {
+        return 1;
+      } else {
+        return 0;
+      }
+    }
+
+    //this function delete the UL children
+    function deleteChildren(parentNode) {
+      while (parentNode.firstChild) {
+        menu.removeChild(menu.firstChild);
+      }
+    }
+
+    form_msg.addEventListener("submit", handleForm);
+
+    //---FUNCTIONS FOR DB
+
+    var ParsedDataFrmDB = "";
+
+    function createTable(dbName, tableName) {
+      var request = indexedDB.open(dbName, 1);
+      request.onupgradeneeded = function (e) {
+        var database = e.target.result;
+        var objectStore = database.createObjectStore(tableName, {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+
+        // Create an index to search customers by name. We may have duplicates
+        // so we can't use a unique index.
+        objectStore.createIndex("name", "name", {
+          unique: false,
+        });
+        objectStore.createIndex("myMessage", "myMessage", {
+          unique: false,
+        });
+        objectStore.createIndex("dateSend", "dateSend", {
+          unique: false,
+        });
+
+        //console.log("Object Store Created");
+      };
+      request.onsuccess = function (e) {
+        var database = e.target.result;
+        //code to verify that the table was created
+        database.objectStoreNames.contains(tableName);
+        database.close();
+      };
+      request.onerror = function (e) {
+        //console.error(e.target.error.message);
+      };
+    }
+
+    function createTxn(dbName, tableName, name, myMessage, dateSend) {
+      var request = indexedDB.open(dbName, 1);
+      request.onsuccess = function (e) {
+        var database = e.target.result;
+        //code to verify that the table was created
+        database.objectStoreNames.contains(tableName);
+        add(database, tableName, name, myMessage, dateSend);
+        database.close();
+      };
+      request.onerror = function (e) {
+        //console.error(e.target.error.message);
+      };
+    }
+
+    function add(db, tableName, name, myMessage, dateSend) {
+      let request_objectstore = db
+        .transaction([tableName], "readwrite")
+        .objectStore(tableName)
+        .add({ name, myMessage, dateSend });
+
+      request_objectstore.onsuccess = function (event) {
+        //console.log("The data has been written successfully");
+      };
+
+      request_objectstore.onerror = function (event) {
+        //console.log("The data has been written failed");
+      };
+    }
+
+    function read(tableName) {
+      var db = indexedDB.open(dbName, 1);
+
+      db.onsuccess = function (e) {
+        let database = e.target.result;
+        let transaction = database.transaction([tableName]);
+        let objectStore = transaction.objectStore(tableName);
+        let request = objectStore.getAll();
+
+        request.onerror = function (event) {
+          //console.log("Transaction failed");
+        };
+
+        request.onsuccess = function (event) {
+          if (request.result) {
+            //console.log("Name: " + request.result.name);
+            //console.log("myMessage: " + request.result.myMessage);
+            //console.log("dateSend: " + request.result.dateSend);
+
+            //console.log(request.result)
+            ParsedDataFrmDB = request.result;
+
+            //return request.result
+          } else {
+            //console.log("No data record");
+          }
+        };
+      };
+
+      //return ParsedDataFrmDB
+    }
+
+    function populateHistory() {
+      read(tableName);
+      function data() {
+        if (ParsedDataFrmDB == undefined) {
+          //console.log("Data is being parsed");
+        } else {
+          clearInterval(loadData);
+          generateData(ParsedDataFrmDB);
+        }
+      }
+      const loadData = setInterval(data, 1000);
+
+      function generateData(raps) {
+        //populate to the li
+        //console.log(raps);
+        //populate to ul
+        let len = raps.length;
+        //console.log(len);
+
+        //loop thru len
+
+        raps.forEach((mesg) => {
+          let whosSender = IsMeSender(name, mesg.name);
+          insertMessage(mesg.name, mesg.myMessage, mesg.dateSend, whosSender);
+        });
+      }
+    }
+
+    async function deleteObjectStore() {
+      const dbs = await window.indexedDB.databases();
+      dbs.forEach((db) => {
+        window.indexedDB.deleteDatabase(db.name);
+      });
+    }
+
+    let btndelete = document.getElementById("btn-delete");
+    /*--for debug only
+    let btnadd = document.getElementById("btn-add");
+    let btnload = document.getElementById("btn-load");
+    btnadd.addEventListener("click", function (e) {
+      createTable(dbName, tableName);
+      createTxn(
+        dbName,
+        tableName,
+        "Emely",
+        "orem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.",
+        "Nov8"
+      );
+    });
+    btnload.addEventListener("click", function (e) {
+      populateHistory();
+    });*/
+
+    btndelete.addEventListener("click", function (e) {
+      var isDelete = confirm("Do you want to delete the history?");
+      if (isDelete == true) {
+        deleteObjectStore();
+        deleteChildren(messaggeHistory);
+        alert("Deleted successfully. Please reload the page.");
+      }
+    });
+
+    /*function on sending my location*/
+
+    let form_location = document.getElementById("form_location");
+
+    function shareMyLocation(event) {
+      event.preventDefault();
+
+      var myLocation = "";
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(showPosition);
+      } else {
+        alert("Geolocation is not supported by this browser.");
+      }
+
+      function showPosition(position) {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        
+        myLocation = "Latitude: " + latitude + "\n Longitude: " + longitude;
+
+        let myMessage = "I am located at " + myLocation;
+        console.log(myLocation);
+      //console.log(txtBox.value);
+        let myData = {
+        name: name,
+        myMessage: myMessage,
+        dateSend: new Date(),
+      };
+      //console.log(myData);
+      ws.send(JSON.stringify(myData));
+
+      }
+
+      
+    }
+
+    form_location.addEventListener("submit", shareMyLocation);
+  </script>
+</html>
